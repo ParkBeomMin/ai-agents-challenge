@@ -614,6 +614,7 @@ name = "life-coach"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "openai" },
     { name = "openai-agents" },
     { name = "streamlit" },
 ]
@@ -625,6 +626,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "openai", specifier = ">=2.31.0" },
     { name = "openai-agents", specifier = ">=0.13.6" },
     { name = "streamlit", specifier = ">=1.56.0" },
 ]
