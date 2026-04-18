@@ -1,42 +1,42 @@
 import asyncio
 from cProfile import label
 import streamlit as st
-from agents import Agent, Runner, SQLiteSession, WebSearchTool, FileSearchTool
+from agents import Agent, Runner, SQLiteSession, WebSearchTool, FileSearchTool, ImageGenerationTool
+from agents.run_config import RunConfig, ModelInputData, CallModelData
 from dotenv import load_dotenv
 from openai import OpenAI
+import base64
 import os
+
 load_dotenv()
 
 VECTOR_STORE_ID = os.environ.get("VECTOR_STORE_ID")
 
 client = OpenAI()
 
+# 에이전트 생성
 if 'agent' not in st.session_state:
     st.session_state['agent'] = Agent(
         name='life-coach',
         instructions="""
-        You are a warm, practical, evidence-informed life coach.
+        너는 사용자의 Life Coach야.
+
+        사용자의 목표, 비전, 일기등을 참고해서 더 나은 방향으로 나아갈 수 있도록 조언, 팁, 동기부여를 해주고 task를 관리해줘야 해.
 
         You have access to:
-        - Web Search Tool
-        - File Search Tool
+        - Web Search Tool: Use this when the user asks a questions that isn't in your training data. Use this tool when the users asks about current or future events, when you think you don't know the answer, try searching for it in the web first.
+        - File Search Tool: 개인 목표 및 일기 참조에 사용한다.
+        - Image Generation Tool: 비전 보드 및 동기부여 이미지 생성에 사용한다.
 
-        Tool rules:
-        1. If the user asks about their own facts, goals, habits, plans, reflections, or any uploaded file, use the File Search Tool first.
-        2. If the user is also asking for advice, causes, solutions, strategies, routines, habits, mindset help, or self-improvement guidance, use the Web Search Tool after File Search.
-        3. Use the file for personal context and use web search for evidence-based general guidance.
-        4. If personal file content and web information conflict, trust the file for the user's personal facts.
-        5. If the file is relevant, do not skip
+        Rule:
 
-        대화 규칙(반드시 지킬 것):
+        - 사용자가 자신의 목표나 비전, 일기 등에 대해 물어볼 때는 반드시 조언이나 팁, 동기부여를 같이 해주는데 너의 생각은 버리고 반드시 Web Search Tool을 활용해서 신뢰할만한 웹 검색 정보로 응답 해줘야해.
 
-        - 사용자가 목표/습관/계획/업로드한 문서 내용에 대해 물으면:
-        1) 반드시 File Search Tool을 먼저 호출한다.
-        2) File Search 결과를 근거로 1~2문장으로 “파일 기반 관찰”을 말한다.
-        3) 이어서 반드시 Web Search Tool을 호출한다.
-            - 웹검색 쿼리는 File Search에서 찾은 키워드로 1개만 만든다.
-            - 예: "운동 루틴 유지하는 방법", "주 3회 운동 습관 형성 팁" 등
+        - 사용자가 목표를 달성한다면 내용을 확인해서 축하 이미지를 만들어서 축하해줘야 해.
 
+        - 사용자가 요청한 질문에 대해서는 되묻지 않고 바로 진행해야해.
+
+        - 각 tool을 사용할 때는 한번만 호출한다.
         """,
         tools=[
             WebSearchTool(),
@@ -45,12 +45,21 @@ if 'agent' not in st.session_state:
                     VECTOR_STORE_ID
                 ],
                 max_num_results=3
+            ),
+            ImageGenerationTool(
+                tool_config={
+                    "type": "image_generation",
+                    "quality": "high",
+                    "output_format": "jpeg",
+                    "partial_images": 1,
+                }
             )
         ]
     )
 
 agent = st.session_state['agent']
 
+# 메모리 생성
 if 'session' not in st.session_state:
     st.session_state['session'] = SQLiteSession(
         'chat-history',
@@ -59,6 +68,7 @@ if 'session' not in st.session_state:
 
 session = st.session_state['session']
 
+# 에이전트 상태 업데이트, UI에 보여주기 위함
 def update_state(status_container, event):
     status_messages = {
         "response.web_search_call.in_progress": ('🔍 Starting web searching...', 'running'),
@@ -67,6 +77,14 @@ def update_state(status_container, event):
         "response.file_search_call.in_progress": ('📁 Starting file searching...', 'running'),
         "response.file_search_call.searching": ('📁 File search in progressing...', 'running'),
         "response.file_search_call.completed": ('✅ File search completed', 'complete'),
+        "response.image_generation_call.generating": (
+            "🎨 Drawing image...",
+            "running",
+        ),
+        "response.image_generation_call.in_progress": (
+            "🎨 Drawing image...",
+            "running",
+        ),
         "response.completed": (' ', 'complete')
     }
 
@@ -74,7 +92,7 @@ def update_state(status_container, event):
         label, state = status_messages[event]
         status_container.update(label=label, state=state)
 
-
+# 메모리 업데이트
 async def update_history():
     messages = await session.get_items()
 
@@ -86,33 +104,70 @@ async def update_history():
                 else:
                     if message["type"] == "message":
                         st.write(message["content"][0]["text"])
-        if "type" in message and message["type"] == "web_search_call":
-            with st.chat_message("ai"):
-                st.write("🔍 Searched the web...")
-        if "type" in message and message["type"] == "file_search_call":
-            with st.chat_message("ai"):
-                st.write("📁 Searched the file...")
+        if "type" in message:
+            type = message["type"]
+            if type == "web_search_call":
+                with st.chat_message("ai"):
+                    st.write("🔍 Searched the web...")
+            elif type == "file_search_call":
+                with st.chat_message("ai"):
+                    st.write("📁 Searched the file...")
+            elif type == "image_generation_call":
+                image = base64.b64decode(message["result"])
+                with st.chat_message("ai"):
+                    st.image(image)
+        
+        
 
 asyncio.run(update_history())
 
 
+def filtering_session(data: CallModelData) -> ModelInputData:
+    items = list(data.model_data.input)
+    out = []
+    for item in items:
+        if isinstance(item, dict) and item.get("type") == "image_generation_call":
+            cleaned = dict(item)
+            cleaned.pop("action", None)
+            out.append(cleaned)
+        else:
+            out.append(item)
+    return ModelInputData(input=out, instructions=data.model_data.instructions)
+
+
+# 에이전트 실행
 async def run_agent(message):
         with st.chat_message("ai"):
             status_container = st.status("⏳", expanded=False)
+            image_placeholder = st.empty()
             text_placeholder = st.empty()
-            response = ''
-            stream = Runner.run_streamed(agent, message, session=session)
+            response = ""
+
+            st.session_state["image_placeholder"] = image_placeholder
+            st.session_state["text_placeholder"] = text_placeholder
+
+            stream = Runner.run_streamed(agent, message, session=session,
+                run_config=RunConfig(call_model_input_filter=filtering_session))
             async for event in stream.stream_events():
                 if event.type == 'raw_response_event':
                     update_state(status_container, event.data.type)
                     if event.data.type == 'response.output_text.delta':
                         response += event.data.delta
                         text_placeholder.write(response.replace("$", "\$"))
+                    if event.data.type == "response.image_generation_call.partial_image":
+                        image = base64.b64decode(event.data.partial_image_b64)
+                        image_placeholder.image(image)
 
-
+# 사용자 입력
 prompt = st.chat_input('Write a message..', accept_file=True, file_type=['txt'])
 
 if prompt:
+
+    if "image_placeholder" in st.session_state:
+        st.session_state["image_placeholder"].empty()
+    if "text_placeholder" in st.session_state:
+        st.session_state["text_placeholder"].empty()
+
     for file in prompt.files:
         if file.type.startswith('text/'):
             with st.chat_message('ai'):
