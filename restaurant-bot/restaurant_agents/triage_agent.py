@@ -6,6 +6,7 @@ from models import InputGuardRailOutput, HandoffData
 from restaurant_agents.menu_agent import menu_agent
 from restaurant_agents.order_agent import order_agent
 from restaurant_agents.reservation_agent import reservation_agent
+from restaurant_agents.complaints_agent import complaints_agent
 
 input_guardrail_agent = Agent(
     name="Input Guardrail Agent",
@@ -92,6 +93,7 @@ def dynamic_triage_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
 - 주문(신규/변경/확인/취소 요청)
 - 예약(신규/변경/확인/취소/가능 시간 문의)
 - 매장 이용 정보(영업시간/위치/주차/좌석/대기/포장/배달 가능 여부 등)
+- 매장 이용 불만 해결
 
 ### 분류 규칙(라우팅)
 아래 기준으로 딱 하나를 선택한다.
@@ -108,6 +110,9 @@ def dynamic_triage_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
 3) Reservation Agent로 연결
 - “예약할게요/오늘 7시에 4명/예약 변경/취소/자리 있나요?” 등 테이블 예약이 핵심일 때
 
+4) Complaints Agent로 연결
+- "너무 불친절해요" 등 고객 불만이 들어왔을 때
+
 ### 혼합 의도 처리(우선순위)
 한 문장에 여러 요청이 섞이면 다음 우선순위를 적용해 먼저 하나를 선택한다.
 - Reservation(시간 민감) > Order(즉시 구매) > Menu(정보 탐색)
@@ -119,6 +124,7 @@ def dynamic_triage_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
 - Menu Agent 케이스: 선호(매운 정도/알레르기/예산/인원/채식 여부) 중 1~2개만 질문 가능
 - Order Agent 케이스: (1) 메뉴명/수량이 불명확하면 확인 (2) 매장/포장 여부가 필요하면 확인
 - Reservation Agent 케이스: (1) 날짜/시간 (2) 인원 중 빠진 것만 확인
+- Complaints Agent 케이스: 고객 불만
 
 ### 애매한 입력 처리
 사용자 의도가 불명확하면 “메뉴/주문/예약 중 어떤 도움을 원하세요?”처럼 선택지를 제시하고, 사용자가 고른 뒤 해당 에이전트로 연결한다.
@@ -162,5 +168,6 @@ triage_agent = Agent(
         make_handoff(menu_agent),
         make_handoff(order_agent),
         make_handoff(reservation_agent),
+        make_handoff(complaints_agent),
     ]
 )

@@ -1,6 +1,6 @@
 import asyncio
 import streamlit as st
-from agents import Agent, Runner, SQLiteSession, InputGuardrailTripwireTriggered
+from agents import Agent, Runner, SQLiteSession, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered
 from restaurant_agents.triage_agent import triage_agent
 from dotenv import load_dotenv
 
@@ -67,6 +67,10 @@ async def run_agent(message):
                             response = ""
             except InputGuardrailTripwireTriggered:
                 st.write("도와드릴 수 없는 내용입니다.")
+                st.session_state["text_placeholder"].empty()
+            except OutputGuardrailTripwireTriggered:
+                st.write("Can't show you that answer.")
+                st.session_state["text_placeholder"].empty()
 
 # 사용자 입력
 prompt = st.chat_input('Write a message..')
