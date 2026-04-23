@@ -43,7 +43,8 @@ async def complaints_output_guardrail(
 
     triggered = validation.contains_off_topic 
     # or validation.contains_menu_data or validation.contains_order_data or validation.contains_reservation_data
-    with st.sidebar:
+    if triggered:
+        with st.sidebar:
             st.write(
                 f"""
                 contains_off_topic: {validation.contains_off_topic}\n
