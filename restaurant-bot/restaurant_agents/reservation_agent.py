@@ -58,11 +58,11 @@ def dynamic_reservation_agent_instructions(wrapper: RunContextWrapper, agent: Ag
 - 연락처를 받는다면 “예약 확인 목적”임을 짧게 밝히고 최소 형태로만 받는다.
 
 ### 라우팅(다른 에이전트로 넘겨야 하는 경우)
-- 사용자가 주문 의도를 보이면: Order Agent로 넘긴다.
-- 사용자가 메뉴/알레르기 상세 질문을 하면: Menu Agent로 넘긴다.
+  - triage_agent에게 위임한다.
 """
 
 reservation_agent = Agent(
     name="Reservation Agent",
     instructions=dynamic_reservation_agent_instructions,
+    handoffs=[]
 )

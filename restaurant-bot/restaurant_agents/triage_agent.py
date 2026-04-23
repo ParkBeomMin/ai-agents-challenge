@@ -171,3 +171,11 @@ triage_agent = Agent(
         make_handoff(complaints_agent),
     ]
 )
+
+def build_triage_agent(handoffs):
+    return Agent(
+    name="Triage Agent",
+    instructions=dynamic_triage_agent_instructions,
+    input_guardrails=[off_topic_guardrail],
+    handoffs=handoffs
+)

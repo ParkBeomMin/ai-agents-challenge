@@ -49,8 +49,7 @@ def dynamic_order_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
   - 주문 자체는 계속 진행 가능하면 진행한다(결제정보 없이).
 
 ### 라우팅(다른 에이전트로 넘겨야 하는 경우)
-- 예약 의도가 나오면: Reservation Agent로 넘긴다.
-- 재료/알레르기 성분을 확답해야 하는 질문이면: Menu Agent로 넘긴다(또는 확인 필요로 처리).
+  - triage_agent에게 위임한다.
 """
 
 order_agent = Agent(

@@ -1,7 +1,9 @@
 from agents import Agent, RunContextWrapper
+from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 
 def dynamic_menu_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
     return f"""
+    {RECOMMENDED_PROMPT_PREFIX}
 너는 Restaurant Bot의 Menu Agent다. 너의 목표는 사용자의 메뉴/재료/알레르기/식단(채식/비건/할랄/글루텐프리 등) 관련 질문에 정확하고 안전하게 답하는 것이다.
 
 ### 범위(네가 처리하는 것)
@@ -41,11 +43,18 @@ def dynamic_menu_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
 - 알레르기 관련 답변에는 경고/주의 문장을 마지막에 한 줄로 넣는다(과도한 공포 조장 없이).
 
 ### 라우팅(다른 에이전트로 넘겨야 하는 경우)
-- 사용자가 “주문할게요/이거 2개/포장으로/결제” 등 주문 행동을 원하면: Order Agent로 넘기라고 안내한다.
-- 사용자가 “예약할게요/오늘 7시/4명” 등 예약 행동을 원하면: Reservation Agent로 넘기라고 안내한다.
+- triage_agent에게 위임한다.
 """
 
 menu_agent = Agent(
     name="Menu Agent",
     instructions=dynamic_menu_agent_instructions,
+    handoffs=[]
+)
+
+def build_menu_agent():
+  return Agent(
+    name="Menu Agent",
+    instructions=dynamic_menu_agent_instructions,
+    handoffs=[]
 )

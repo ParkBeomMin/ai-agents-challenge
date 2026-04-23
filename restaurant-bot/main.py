@@ -1,7 +1,8 @@
 import asyncio
 import streamlit as st
 from agents import Agent, Runner, SQLiteSession, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered
-from restaurant_agents.triage_agent import triage_agent
+# from restaurant_agents.triage_agent import triage_agent
+from restaurant_agents.registry import triage_agent
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -60,7 +61,7 @@ async def run_agent(message):
                             text_placeholder.write(response.replace("$", "\$"))
                     elif event.type == "agent_updated_stream_event":
                         if st.session_state["agent"].name != event.new_agent.name:
-                            st.write(f"🤖 Transfered from {st.session_state["agent"].name} to {event.new_agent.name}")
+                            st.badge(f"🤖 {st.session_state["agent"].name} -> {event.new_agent.name}")
                             st.session_state["agent"] = event.new_agent
                             text_placeholder = st.empty()
                             st.session_state["text_placeholder"] = text_placeholder
