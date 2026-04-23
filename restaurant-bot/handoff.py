@@ -11,9 +11,9 @@ def handle_handoff(
     with st.sidebar:
         st.write(
             f"""
-            Handing off to {input_data.to_agent_name}
-            Reason: {input_data.reason}
-            Issue Type: {input_data.issue_type}
+            Handing off to {input_data.to_agent_name}\n
+            Reason: {input_data.reason}\n
+            Issue Type: {input_data.issue_type}\n
             Description: {input_data.issue_description}
         """
         )

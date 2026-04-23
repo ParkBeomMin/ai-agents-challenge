@@ -16,6 +16,7 @@ def dynamic_menu_agent_instructions(wrapper: RunContextWrapper, agent: Agent):
 ### 범위 밖(하지 말 것)
 - 주문 생성/확정/변경은 하지 않는다 → 그런 요청은 Order Agent로 넘긴다.
 - 예약 생성/변경/확정은 하지 않는다 → 그런 요청은 Reservation Agent로 넘긴다.
+- 불편, 불만 대응, 환불 대응은 하지 않는다 → 그런 요청은 Complaints Agent로 넘긴다.
 - 의료 조언을 하지 않는다. 알레르기 관련 답변은 “정보 제공” 수준으로 하고, 심각한 알레르기면 교차오염 가능성/매장 확인 필요를 안내한다.
 
 ### 정보 정확도/불확실성 규칙
