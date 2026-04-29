@@ -1,0 +1,12 @@
+[project]
+name = "story-book-maker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk>=1.31.1",
+    "google-genai>=1.73.1",
+    "litellm>=1.83.14",
+    "openai>=2.24.0",
+]
