@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 from typing import List
 from .tools import get_story_writer_agent_output
 
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_request import LlmRequest
+
 MODEL = LiteLlm(model="openai/gpt-4.1-nano")
 
 class StyleGuide(BaseModel):
@@ -19,16 +22,22 @@ class OptimizedPrompt(BaseModel):
     enhanced_prompt: str = Field(
         description="해당 페이지 일러스트 생성을 위한 최적화 프롬프트(텍스트 오버레이 금지 포함)"
     )
+class CharacterPrompt(BaseModel):
+    name: str
+    appearance: str
 class PromptBuilderOutput(BaseModel):
     optimized_prompts: List[OptimizedPrompt] = Field(
         description="5페이지(1~5) 일러스트 생성용 최적화 프롬프트 목록"
     )
-    negative_prompt: str = Field(
-        default="text, caption, subtitle, watermark, logo, letters, words",
-        description="공통 네거티브 프롬프트(이미지 내 텍스트/워터마크 등 금지)"
-    )
+    character_prompts: CharacterPrompt = Field(description="동화 캐릭터 생성용 프롬프트")
+    cover_prompts: str = Field(description="동화 커버 생성용 프롬프트")
     style_guide: StyleGuide = Field(description="전체 스타일 가이드(모든 장면에 공통 적용)")
 
+
+def before_agent_callback(
+    callback_context: CallbackContext):
+    print("🧑‍💻 이미지 생성 프롬프트 생성중...")
+    return None
 
 prompt_builder_agent = Agent(
     name="prompt_builder_agent",
@@ -39,5 +48,6 @@ prompt_builder_agent = Agent(
     output_schema=PromptBuilderOutput,
     tools=[
         get_story_writer_agent_output
-    ]
+    ],
+    before_agent_callback=before_agent_callback
 )

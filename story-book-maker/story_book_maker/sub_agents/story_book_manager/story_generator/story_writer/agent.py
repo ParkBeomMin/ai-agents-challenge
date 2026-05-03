@@ -1,8 +1,13 @@
+from google.genai import types
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 from .prompt import STORY_WRITER_DESCRIPTION, STORY_WRITER_INSTRUCTION
 from pydantic import BaseModel, Field
 from typing import List
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
+
 
 class Character(BaseModel):
     name: str = Field(description="캐릭터 이름(스토리 전 페이지에서 동일하게 사용)")
@@ -16,10 +21,17 @@ class StoryPage(BaseModel):
 class StoryWriterOutput(BaseModel):
     title: str = Field(description="동화 제목")
     theme: str = Field(description="동화 테마(주제/교훈/분위기)")
-    characters: List[Character] = Field(description="등장인물")
+    character: Character = Field(description="등장인물")
     pages: List[StoryPage] = Field(description="정확히 5페이지 구성의 페이지 배열")
 
 MODEL = LiteLlm(model="openai/gpt-4o")
+
+def before_model_callback(
+    callback_context: CallbackContext,
+    llm_request: LlmRequest,
+):
+    print("📝 스토리 생성중...")
+    return None
 
 story_writer_agent = Agent(
     name="story_writer_agent",
@@ -27,5 +39,6 @@ story_writer_agent = Agent(
     description=STORY_WRITER_DESCRIPTION,
     instruction=STORY_WRITER_INSTRUCTION,
     output_key="story_writer_agent_output",
-    output_schema=StoryWriterOutput
+    output_schema=StoryWriterOutput,
+    before_model_callback=before_model_callback,
 )
