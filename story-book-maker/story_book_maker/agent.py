@@ -16,7 +16,6 @@ story_book_maker_agent = Agent(
     instruction=STORY_BOOK_MAKER_INSTRUCTION,
     tools=[
         AgentTool(agent=story_book_manager),
-        AgentTool(agent=illust_generator_agent),
     ]
 )
 
