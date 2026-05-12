@@ -164,6 +164,15 @@ def build_question_chips_html(questions: list[str]) -> str:
     return "".join(parts)
 
 
+def build_loading_status_html(message: str) -> str:
+    return (
+        '<div class="loading-status">'
+        '<span class="loading-status-spinner" aria-hidden="true"></span>'
+        f'<span class="loading-status-text">{escape(message)}</span>'
+        "</div>"
+    )
+
+
 def build_material_list_html(materials: list[str]) -> str:
     parts = ['<div class="material-list">']
     for material in materials:

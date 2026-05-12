@@ -5,6 +5,8 @@ import hashlib
 import json
 import sqlite3
 import urllib.request
+from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +22,29 @@ from typing_extensions import TypedDict
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "learning.db"
 DEFAULT_IMAGE_DIR = PROJECT_ROOT / "generated"
+DEFAULT_WORKFLOW_PROGRESS_MESSAGE = "왜용이 답을 준비하고 있어요."
+
+WORKFLOW_PROGRESS_MESSAGES = {
+    "ensure_child_profile": "아이 정보를 확인하고 있어요.",
+    "analyze_question": "질문을 분석하고 있어요.",
+    "convert_study_subject": "질문을 학습 주제로 정리하고 있어요.",
+    "load_prior_learning": "이전 학습 기록을 확인하고 있어요.",
+    "generate_parent_coach": "부모를 위한 설명을 만들고 있어요.",
+    "decide_activity_feasibility": "어떤 활동이 어울릴지 판단하고 있어요.",
+    "generate_activity_guide": "활동 가이드를 만들고 있어요.",
+    "decide_image_need": "이미지 카드가 필요한지 살펴보고 있어요.",
+    "create_image_card": "이미지 카드를 만들고 있어요.",
+    "skip_image_card": "이미지 카드는 생략하고 기록을 정리하고 있어요.",
+    "save_learning_record": "학습 기록을 저장하고 있어요.",
+}
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+ProgressCallback = Callable[[str, str], None]
+CURRENT_PROGRESS_CALLBACK: ContextVar[ProgressCallback | None] = ContextVar(
+    "current_progress_callback",
+    default=None,
+)
 
 
 class CuriosityRequest(BaseModel):
@@ -30,7 +53,6 @@ class CuriosityRequest(BaseModel):
     child_interests: list[str] | str | None = None
     explanation_style: str = "짧고 재밌게"
     learner_id: str = ""
-    child_reaction_note: str = ""
 
     @field_validator("question")
     @classmethod
@@ -153,7 +175,6 @@ class WorkflowState(TypedDict, total=False):
     image_card_prompts: list[str]
     image_card_paths: list[str]
     image_need: ImageNeedDecision
-    child_reaction_note: str
     related_question_suggestions: list[str]
     saved_record_id: int
 
@@ -171,6 +192,10 @@ def get_activity_branch_label(branch: str) -> str:
     return labels.get(branch, branch)
 
 
+def get_workflow_progress_message(node_name: str) -> str:
+    return WORKFLOW_PROGRESS_MESSAGES.get(node_name, DEFAULT_WORKFLOW_PROGRESS_MESSAGE)
+
+
 def normalize_request(request: CuriosityRequest) -> CuriosityRequest:
     target_age = max(3, min(8, int(request.target_age)))
 
@@ -180,7 +205,6 @@ def normalize_request(request: CuriosityRequest) -> CuriosityRequest:
 
     style = (request.explanation_style or "짧고 재밌게").strip() or "짧고 재밌게"
     learner_id = (request.learner_id or "").strip()
-    child_reaction_note = (request.child_reaction_note or "").strip()
 
     return CuriosityRequest(
         question=request.question,
@@ -188,7 +212,6 @@ def normalize_request(request: CuriosityRequest) -> CuriosityRequest:
         child_interests=list(interests),
         explanation_style=style,
         learner_id=learner_id,
-        child_reaction_note=child_reaction_note,
     )
 
 
@@ -472,6 +495,19 @@ class WaeyongWorkflow:
 
         return generate_education_image_card
 
+    def _wrap_node_with_progress(
+        self,
+        node_name: str,
+        node_fn: Callable[[WorkflowState], dict[str, Any]],
+    ) -> Callable[[WorkflowState], dict[str, Any]]:
+        def wrapped_node(state: WorkflowState) -> dict[str, Any]:
+            progress_callback = CURRENT_PROGRESS_CALLBACK.get()
+            if callable(progress_callback):
+                progress_callback(node_name, get_workflow_progress_message(node_name))
+            return node_fn(state)
+
+        return wrapped_node
+
     def _ensure_child_profile(self, state: WorkflowState) -> dict[str, Any]:
         normalized = normalize_request(
             CuriosityRequest(
@@ -480,7 +516,6 @@ class WaeyongWorkflow:
                 child_interests=state.get("child_interests", []),
                 explanation_style=state.get("explanation_style", "짧고 재밌게"),
                 learner_id=state.get("learner_id", ""),
-                child_reaction_note=state.get("child_reaction_note", ""),
             )
         )
         return {
@@ -488,7 +523,6 @@ class WaeyongWorkflow:
             "child_interests": normalized.child_interests,
             "explanation_style": normalized.explanation_style,
             "learner_id": normalized.learner_id,
-            "child_reaction_note": normalized.child_reaction_note,
         }
 
     def _analyze_question(self, state: WorkflowState) -> dict[str, Any]:
@@ -730,7 +764,6 @@ class WaeyongWorkflow:
         excerpt = (coach.short_answer_30s[:800] if coach else "") or ""
         fe = state.get("activity_feasibility")
         ag = state.get("activity_guide")
-        note = (state.get("child_reaction_note") or "").strip()
 
         img_need = state.get("image_need")
         image_paths = list(state.get("image_card_paths") or [])
@@ -747,8 +780,6 @@ class WaeyongWorkflow:
             outcome_summary += f" | 활동분기:{fe.branch}"
         if ag:
             outcome_summary += f" | 활동:{ag.title[:40]}"
-        if note:
-            outcome_summary += f" | 부모메모:{note[:80]}"
 
         qa = state.get("question_analysis")
         question_category = (qa.question_type or "").strip()[:200] if qa else ""
@@ -828,17 +859,53 @@ class WaeyongWorkflow:
 
     def _build_graph(self):
         graph_builder = StateGraph(WorkflowState)
-        graph_builder.add_node("ensure_child_profile", self._ensure_child_profile)
-        graph_builder.add_node("analyze_question", self._analyze_question)
-        graph_builder.add_node("convert_study_subject", self._convert_study_subject)
-        graph_builder.add_node("load_prior_learning", self._load_prior_learning)
-        graph_builder.add_node("generate_parent_coach", self._generate_parent_coach)
-        graph_builder.add_node("decide_activity_feasibility", self._decide_activity_feasibility)
-        graph_builder.add_node("generate_activity_guide", self._generate_activity_guide)
-        graph_builder.add_node("decide_image_need", self._decide_image_need)
-        graph_builder.add_node("create_image_card", self._create_image_card)
-        graph_builder.add_node("skip_image_card", self._skip_image_card)
-        graph_builder.add_node("save_learning_record", self._save_learning_record)
+        graph_builder.add_node(
+            "ensure_child_profile",
+            self._wrap_node_with_progress("ensure_child_profile", self._ensure_child_profile),
+        )
+        graph_builder.add_node(
+            "analyze_question",
+            self._wrap_node_with_progress("analyze_question", self._analyze_question),
+        )
+        graph_builder.add_node(
+            "convert_study_subject",
+            self._wrap_node_with_progress("convert_study_subject", self._convert_study_subject),
+        )
+        graph_builder.add_node(
+            "load_prior_learning",
+            self._wrap_node_with_progress("load_prior_learning", self._load_prior_learning),
+        )
+        graph_builder.add_node(
+            "generate_parent_coach",
+            self._wrap_node_with_progress("generate_parent_coach", self._generate_parent_coach),
+        )
+        graph_builder.add_node(
+            "decide_activity_feasibility",
+            self._wrap_node_with_progress(
+                "decide_activity_feasibility",
+                self._decide_activity_feasibility,
+            ),
+        )
+        graph_builder.add_node(
+            "generate_activity_guide",
+            self._wrap_node_with_progress("generate_activity_guide", self._generate_activity_guide),
+        )
+        graph_builder.add_node(
+            "decide_image_need",
+            self._wrap_node_with_progress("decide_image_need", self._decide_image_need),
+        )
+        graph_builder.add_node(
+            "create_image_card",
+            self._wrap_node_with_progress("create_image_card", self._create_image_card),
+        )
+        graph_builder.add_node(
+            "skip_image_card",
+            self._wrap_node_with_progress("skip_image_card", self._skip_image_card),
+        )
+        graph_builder.add_node(
+            "save_learning_record",
+            self._wrap_node_with_progress("save_learning_record", self._save_learning_record),
+        )
 
         graph_builder.add_edge(START, "ensure_child_profile")
         graph_builder.add_edge("ensure_child_profile", "analyze_question")
@@ -861,12 +928,24 @@ class WaeyongWorkflow:
         graph_builder.add_edge("save_learning_record", END)
         return graph_builder.compile()
 
-    def run(self, request: CuriosityRequest, thread_id: str = "streamlit") -> CuriosityResult:
+    def run(
+        self,
+        request: CuriosityRequest,
+        thread_id: str = "streamlit",
+        progress_callback: ProgressCallback | None = None,
+    ) -> CuriosityResult:
         normalized = normalize_request(request)
-        result = self.graph.invoke(
-            normalized.model_dump(),
-            config={"configurable": {"thread_id": thread_id}},
-        )
+        callback_token = None
+        if progress_callback is not None:
+            callback_token = CURRENT_PROGRESS_CALLBACK.set(progress_callback)
+        try:
+            result = self.graph.invoke(
+                normalized.model_dump(),
+                config={"configurable": {"thread_id": thread_id}},
+            )
+        finally:
+            if callback_token is not None:
+                CURRENT_PROGRESS_CALLBACK.reset(callback_token)
         return CuriosityResult(
             target_age=int(result["target_age"]),
             child_interests=list(result.get("child_interests") or []),

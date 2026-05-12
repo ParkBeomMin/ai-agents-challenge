@@ -10,6 +10,7 @@ from ui_helpers import (
     build_creative_question_guide_html,
     build_guidance_pair_html,
     build_material_list_html,
+    build_loading_status_html,
     build_history_button_text,
     build_long_answer_block_html,
     build_question_chips_html,
@@ -30,6 +31,7 @@ from waeyong_core import (
     LearningRepository,
     build_workflow,
     get_activity_branch_label,
+    get_workflow_progress_message,
 )
 
 
@@ -311,6 +313,39 @@ st.markdown(
         line-height: 1.7;
         white-space: pre-wrap;
       }
+      .loading-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px 0;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: #f4f8fe;
+        border: 1px solid #d9e5f3;
+        color: #314155;
+      }
+      .loading-status-spinner {
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        border: 2px solid #c7d8ee;
+        border-top-color: #4f7db3;
+        flex-shrink: 0;
+        animation: loading-status-spin 0.85s linear infinite;
+      }
+      .loading-status-text {
+        font-size: 0.95rem;
+        line-height: 1.5;
+        font-weight: 600;
+      }
+      @keyframes loading-status-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
       section[data-testid="stSidebar"] div[data-testid="stButton"] {
         margin-bottom: 10px;
       }
@@ -588,10 +623,6 @@ def render_result(result: CuriosityResult) -> None:
                 unsafe_allow_html=True,
             )
 
-    if result.saved_record_id is not None:
-        st.success(f"학습 기록이 저장되었습니다. 기록 ID: {result.saved_record_id}")
-
-
 def main() -> None:
     st.title("왜용")
     st.write(
@@ -623,11 +654,6 @@ def main() -> None:
             height=120,
             placeholder="예: 비는 왜 내려요?",
         )
-        child_reaction_note = st.text_area(
-            "오늘 상황 메모 (선택)",
-            height=80,
-            placeholder="예: 창밖을 보다가 갑자기 물어봄",
-        )
         submitted = st.form_submit_button("왜용?", use_container_width=True)
 
     loading_placeholder = st.empty()
@@ -643,17 +669,27 @@ def main() -> None:
                 child_interests=child_interests,
                 explanation_style=explanation_style,
                 learner_id=learner_id,
-                child_reaction_note=child_reaction_note,
             )
             try:
                 with loading_placeholder.container():
-                    st.info("질문을 분석하고, 설명과 활동을 준비하고 있어요.")
-                    with st.spinner("왜용이 답을 준비하고 있어요..."):
-                        workflow = get_workflow()
-                        result = workflow.run(
-                            request,
-                            thread_id=f"{learner_id or 'guest'}-{uuid4().hex[:8]}",
+                    progress_status_placeholder = st.empty()
+                    progress_status_placeholder.markdown(
+                        build_loading_status_html(get_workflow_progress_message("ensure_child_profile")),
+                        unsafe_allow_html=True,
+                    )
+
+                    def update_progress_status(_node_name: str, message: str) -> None:
+                        progress_status_placeholder.markdown(
+                            build_loading_status_html(message),
+                            unsafe_allow_html=True,
                         )
+
+                    workflow = get_workflow()
+                    result = workflow.run(
+                        request,
+                        thread_id=f"{learner_id or 'guest'}-{uuid4().hex[:8]}",
+                        progress_callback=update_progress_status,
+                    )
                 loading_placeholder.empty()
                 st.session_state["latest_result"] = result.model_dump()
                 st.session_state["active_result_source"] = "latest"

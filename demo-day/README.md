@@ -46,7 +46,6 @@ flowchart TD
 - `child_interests`: 선택, 예 `["공룡", "자동차"]`  
 - `explanation_style`: 선택, 예 `"짧고 재밌게"`  
 - `learner_id`: 선택, 같은 아이 기준으로 이전 기록만 보고 싶을 때  
-- `child_reaction_note`: 선택, 오늘 상황 메모(저장 시 요약에 포함)  
 
 ### Streamlit MVP 실행
 

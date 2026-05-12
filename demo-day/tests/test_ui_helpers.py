@@ -3,6 +3,7 @@ from ui_helpers import (
     build_guidance_pair_html,
     build_activity_steps_html,
     build_creative_question_guide_html,
+    build_loading_status_html,
     build_paragraph_cards_html,
     build_material_list_html,
     build_question_chips_html,
@@ -96,6 +97,14 @@ def test_build_question_chips_html_returns_empty_for_blank_items() -> None:
     html = build_question_chips_html(["", "  "])
 
     assert html == ""
+
+
+def test_build_loading_status_html_renders_spinner_and_escaped_message() -> None:
+    html = build_loading_status_html('질문을 분석하고 있어요. <test>')
+
+    assert "loading-status" in html
+    assert "loading-status-spinner" in html
+    assert "질문을 분석하고 있어요. &lt;test&gt;" in html
 
 
 def test_build_history_button_label_combines_category_and_question() -> None:
