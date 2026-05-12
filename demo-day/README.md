@@ -48,6 +48,49 @@ flowchart TD
 - `learner_id`: 선택, 같은 아이 기준으로 이전 기록만 보고 싶을 때  
 - `child_reaction_note`: 선택, 오늘 상황 메모(저장 시 요약에 포함)  
 
+### Streamlit MVP 실행
+
+현재 MVP는 `main.py`를 Streamlit 앱 엔트리포인트로 사용하고, 실제 워크플로우는 `waeyong_core.py`에서 실행합니다.
+
+1. 의존성 설치
+
+```bash
+uv sync
+```
+
+2. OpenAI 키 준비
+
+- `.env` 또는 셸 환경변수에 `OPENAI_API_KEY`가 필요합니다.
+- 이미지 카드까지 생성하려면 같은 키로 `gpt-image-1.5` 호출이 가능해야 합니다.
+
+3. 앱 실행
+
+```bash
+uv run streamlit run main.py
+```
+
+4. 브라우저에서 확인할 수 있는 것
+
+- 아이 프로필 입력 (`target_age`, `child_interests`, `explanation_style`, `learner_id`)
+- 질문 입력 및 실행
+- 질문 분석 / 학습 주제 / 부모 코치 패키지 / 활동 가이드
+- 조건부 이미지 카드 표시
+- 최근 학습 기록, 카테고리 필터, 선택 기록 요약
+
+### 파일 구조
+
+- `main.py`: Streamlit UI 엔트리포인트
+- `waeyong_core.py`: LangGraph 워크플로우, SQLite 저장소, 이미지 Tool, 실행 함수
+- `learning.db`: 실행 중 생성되는 SQLite 데이터베이스
+- `generated/`: 생성된 이미지 카드 저장 폴더
+- `tests/test_waeyong_core.py`: 코어 스모크/회귀 테스트
+
+### 저장 경로와 주의점
+
+- 학습 기록은 프로젝트 루트 기준 `learning.db`에 저장됩니다.
+- 생성 이미지는 `generated/` 아래에 저장됩니다.
+- Streamlit은 rerun이 잦기 때문에, 현재 MVP는 **제출 버튼을 눌렀을 때만** 워크플로우를 실행하도록 구성했습니다.
+
 ### 과제 요건
 
 - LangGraph  
@@ -60,9 +103,9 @@ flowchart TD
 
 ### 프론트엔드를 붙일 때
 
-- 노트북 그래프는 **파이썬 프로세스 안**에서 동작하므로, 웹/앱에서는 보통 **FastAPI 등으로 `graph.invoke`를 감싼 API**를 두고 프론트가 호출합니다.
+- 현재 코어는 `waeyong_core.py`로 분리되어 있어, 다음 단계에서는 **FastAPI 등으로 `run_curiosity(...)`를 감싼 API**를 두고 프론트가 호출하는 방식이 자연스럽습니다.
 - 세션은 `thread_id`·`learner_id`를 요청 본문으로 넘기면 됩니다.
-- 학습 기록 조회는 SQLite **`fetch_learning_records` / `list_question_categories`**(노트북 첫 코드 셀에 정의)를 그대로 API 핸들러에서 호출하거나, 동일 SQL을 옮기면 됩니다.
+- 학습 기록 조회는 SQLite **`fetch_learning_records` / `list_question_categories`**를 API 핸들러에서 그대로 호출하거나, 동일 SQL을 옮기면 됩니다.
 
 ### 카테고리별 질문 보기
 
