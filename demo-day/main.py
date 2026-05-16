@@ -29,6 +29,8 @@ from waeyong_core import (
     CuriosityRequest,
     CuriosityResult,
     LearningRepository,
+    QuestionRejectedError,
+    assess_question_quality,
     build_workflow,
     get_activity_branch_label,
     get_workflow_progress_message,
@@ -673,47 +675,59 @@ def main() -> None:
             st.session_state.pop("latest_result", None)
             st.warning("아이 질문을 입력해 주세요.")
         else:
-            request = CuriosityRequest(
-                question=question.strip(),
-                target_age=target_age,
-                child_interests=child_interests,
-                explanation_style=explanation_style,
-                learner_id=learner_id,
-            )
-            try:
-                with loading_placeholder.container():
-                    progress_status_placeholder = st.empty()
-                    progress_status_placeholder.markdown(
-                        build_loading_status_html(get_workflow_progress_message("ensure_child_profile")),
-                        unsafe_allow_html=True,
-                    )
-
-                    def update_progress_status(_node_name: str, message: str) -> None:
+            question_text = question.strip()
+            guard_assessment = assess_question_quality(question_text)
+            if not guard_assessment.acceptable:
+                st.session_state.pop("latest_result", None)
+                st.warning(guard_assessment.message)
+            else:
+                request = CuriosityRequest(
+                    question=question_text,
+                    target_age=target_age,
+                    child_interests=child_interests,
+                    explanation_style=explanation_style,
+                    learner_id=learner_id,
+                )
+                try:
+                    with loading_placeholder.container():
+                        progress_status_placeholder = st.empty()
                         progress_status_placeholder.markdown(
-                            build_loading_status_html(message),
+                            build_loading_status_html(
+                                get_workflow_progress_message("ensure_child_profile")
+                            ),
                             unsafe_allow_html=True,
                         )
 
-                    workflow = get_workflow()
-                    result = workflow.run(
-                        request,
-                        thread_id=f"{learner_id or 'guest'}-{uuid4().hex[:8]}",
-                        progress_callback=update_progress_status,
-                    )
-                loading_placeholder.empty()
-                st.session_state["latest_result"] = result.model_dump()
-                st.session_state["active_result_source"] = "latest"
-            except Exception as exc:
-                loading_placeholder.empty()
-                st.session_state.pop("latest_result", None)
-                message = str(exc)
-                if "OPENAI_API_KEY" in message or "Missing credentials" in message:
-                    st.error(
-                        "OPENAI API 키를 찾지 못했습니다. `.env` 또는 셸 환경변수에 "
-                        "`OPENAI_API_KEY`를 설정해 주세요."
-                    )
-                else:
-                    st.error(f"왜용 실행 중 오류가 발생했습니다: {message}")
+                        def update_progress_status(_node_name: str, message: str) -> None:
+                            progress_status_placeholder.markdown(
+                                build_loading_status_html(message),
+                                unsafe_allow_html=True,
+                            )
+
+                        workflow = get_workflow()
+                        result = workflow.run(
+                            request,
+                            thread_id=f"{learner_id or 'guest'}-{uuid4().hex[:8]}",
+                            progress_callback=update_progress_status,
+                        )
+                    loading_placeholder.empty()
+                    st.session_state["latest_result"] = result.model_dump()
+                    st.session_state["active_result_source"] = "latest"
+                except QuestionRejectedError as exc:
+                    loading_placeholder.empty()
+                    st.session_state.pop("latest_result", None)
+                    st.warning(exc.message)
+                except Exception as exc:
+                    loading_placeholder.empty()
+                    st.session_state.pop("latest_result", None)
+                    message = str(exc)
+                    if "OPENAI_API_KEY" in message or "Missing credentials" in message:
+                        st.error(
+                            "OPENAI API 키를 찾지 못했습니다. `.env` 또는 셸 환경변수에 "
+                            "`OPENAI_API_KEY`를 설정해 주세요."
+                        )
+                    else:
+                        st.error(f"왜용 실행 중 오류가 발생했습니다: {message}")
 
     render_history_sidebar(repo, learner_id)
 

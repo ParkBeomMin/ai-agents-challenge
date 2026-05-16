@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import sqlite3
 import urllib.request
 from collections.abc import Callable
@@ -26,6 +27,7 @@ DEFAULT_WORKFLOW_PROGRESS_MESSAGE = "왜용이 답을 준비하고 있어요."
 
 WORKFLOW_PROGRESS_MESSAGES = {
     "ensure_child_profile": "아이 정보를 확인하고 있어요.",
+    "guard_question": "질문이 우리 서비스에 맞는지 확인하고 있어요.",
     "analyze_question": "질문을 분석하고 있어요.",
     "convert_study_subject": "질문을 학습 주제로 정리하고 있어요.",
     "load_prior_learning": "이전 학습 기록을 확인하고 있어요.",
@@ -39,6 +41,22 @@ WORKFLOW_PROGRESS_MESSAGES = {
 }
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+DEFAULT_QUESTION_REJECTION_MESSAGE = (
+    "아이의 호기심 질문으로 다시 입력해 주세요. 예: 비는 왜 내려요?"
+)
+
+
+class QuestionRejectedError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+class QuestionGuardAssessment(BaseModel):
+    acceptable: bool
+    message: str = ""
+
 
 ProgressCallback = Callable[[str, str], None]
 CURRENT_PROGRESS_CALLBACK: ContextVar[ProgressCallback | None] = ContextVar(
@@ -64,6 +82,13 @@ class CuriosityRequest(BaseModel):
 
 
 class QuestionAnalysis(BaseModel):
+    is_acceptable: bool = Field(
+        description="만 3~8세 아이의 호기심·학습 주제로 부모 코칭이 가능하면 true, 어긋나면 false"
+    )
+    rejection_message: str = Field(
+        default="",
+        description="is_acceptable이 false일 때 부모에게 보여줄 짧은 안내 문구",
+    )
     question_type: str = Field(
         description="질문 유형: 과학·자연 / 감정·관계 / 사회·가치 / 민감(죽음·신체·가난 등) / 일상·기타 중 짧게"
     )
@@ -164,6 +189,8 @@ class WorkflowState(TypedDict, total=False):
     child_interests: list[str]
     explanation_style: str
     question: str
+    question_rejected: bool
+    question_rejection_message: str
     question_analysis: QuestionAnalysis
     study_subject: StudySubject
     prior_learning_notes: str
@@ -194,6 +221,50 @@ def get_activity_branch_label(branch: str) -> str:
 
 def get_workflow_progress_message(node_name: str) -> str:
     return WORKFLOW_PROGRESS_MESSAGES.get(node_name, DEFAULT_WORKFLOW_PROGRESS_MESSAGE)
+
+
+def assess_question_quality(question: str) -> QuestionGuardAssessment:
+    text = (question or "").strip()
+    if not text:
+        return QuestionGuardAssessment(
+            acceptable=False,
+            message="아이 질문을 입력해 주세요.",
+        )
+
+    compact = re.sub(r"\s+", "", text)
+    if len(compact) < 2:
+        return QuestionGuardAssessment(
+            acceptable=False,
+            message="질문이 너무 짧아요. 아이가 궁금해한 내용을 조금 더 적어 주세요.",
+        )
+
+    if len(set(compact)) == 1:
+        return QuestionGuardAssessment(
+            acceptable=False,
+            message="의미 있는 질문인지 확인하기 어려워요. 아이가 궁금해한 말이나 문장으로 다시 입력해 주세요.",
+        )
+
+    if re.fullmatch(r"[\W\d_]+", compact, flags=re.UNICODE):
+        return QuestionGuardAssessment(
+            acceptable=False,
+            message="기호나 숫자만으로는 질문을 이해하기 어려워요. 아이의 질문을 문장으로 적어 주세요.",
+        )
+
+    if not re.search(r"[가-힣a-zA-Z]", text):
+        return QuestionGuardAssessment(
+            acceptable=False,
+            message="질문을 알아듣기 어려워요. 한글 또는 영문으로 아이의 질문을 적어 주세요.",
+        )
+
+    korean_syllables = re.findall(r"[가-힣]{2,}", text)
+    latin_words = re.findall(r"[a-zA-Z]{2,}", text)
+    if not korean_syllables and not latin_words:
+        return QuestionGuardAssessment(
+            acceptable=False,
+            message="질문이 너무 짧거나 의미가 분명하지 않아요. 예: 비는 왜 내려요?",
+        )
+
+    return QuestionGuardAssessment(acceptable=True)
 
 
 def normalize_request(request: CuriosityRequest) -> CuriosityRequest:
@@ -523,7 +594,37 @@ class WaeyongWorkflow:
             "child_interests": normalized.child_interests,
             "explanation_style": normalized.explanation_style,
             "learner_id": normalized.learner_id,
+            "question_rejected": False,
+            "question_rejection_message": "",
         }
+
+    def _guard_question(self, state: WorkflowState) -> dict[str, Any]:
+        assessment = assess_question_quality(state.get("question") or "")
+        if assessment.acceptable:
+            return {
+                "question_rejected": False,
+                "question_rejection_message": "",
+            }
+        return {
+            "question_rejected": True,
+            "question_rejection_message": assessment.message,
+        }
+
+    @staticmethod
+    def _reject_question(_state: WorkflowState) -> dict[str, Any]:
+        return {}
+
+    @staticmethod
+    def _route_after_guard(state: WorkflowState) -> str:
+        if state.get("question_rejected"):
+            return "reject"
+        return "continue"
+
+    @staticmethod
+    def _route_after_analyze(state: WorkflowState) -> str:
+        if state.get("question_rejected"):
+            return "reject"
+        return "continue"
 
     def _analyze_question(self, state: WorkflowState) -> dict[str, Any]:
         ta = state.get("target_age", 4)
@@ -531,9 +632,10 @@ class WaeyongWorkflow:
         style = state.get("explanation_style") or ""
         response = self.llm.with_structured_output(QuestionAnalysis).invoke(
             f"""
-            당신은 부모를 돕는 교육 코치입니다. 아래는 부모가 적어 준 아이의 질문입니다.
+            당신은 만 3~8세 아이의 호기심·학습 주제에 답하도록 부모를 돕는 교육 코치입니다.
+            부모가 입력한 문장은 '아이가 방금 한 질문'이어야 합니다.
 
-            아이 질문:
+            아이 질문(부모가 대신 입력):
             {state["question"]}
 
             아이 나이: {ta}세 (만 나이 기준으로 해석)
@@ -541,12 +643,26 @@ class WaeyongWorkflow:
             부모가 원하는 설명 스타일: {style}
 
             규칙:
+            - is_acceptable 판단 기준: 이 질문이 만 3~8세 아이의 호기심·학습 주제로 다룰 수 있으면 true, 아이들의 학습 주제에 어긋나면 false.
+            - 아이들의 학습 주제에 어긋나는 질문이면 반드시 is_acceptable=false 로 두세요.
+            - acceptable이 false이면 rejection_message에 왜 학습 주제에 맞지 않는지 한 문장으로 적고, 나머지 필드는 최소한으로 채웁니다.
             - 과학 질문으로만 몰아가지 마세요. 감정·사회·민감 주제도 구분합니다.
             - question_type은 반드시 한 줄로: 과학·자연 / 감정·관계 / 사회·가치 / 민감·신체·죽음 등 / 일상·기타 중 가까운 것.
             - 민감 주제는 parent_need에 '조심스러운 대화, 정확한 정보 탐색, 아이 속도 존중' 등을 적습니다.
             """
         )
-        return {"question_analysis": response}
+        if not response.is_acceptable:
+            message = (response.rejection_message or "").strip() or DEFAULT_QUESTION_REJECTION_MESSAGE
+            return {
+                "question_analysis": response,
+                "question_rejected": True,
+                "question_rejection_message": message,
+            }
+        return {
+            "question_analysis": response,
+            "question_rejected": False,
+            "question_rejection_message": "",
+        }
 
     def _convert_study_subject(self, state: WorkflowState) -> dict[str, Any]:
         qa = state["question_analysis"]
@@ -864,6 +980,11 @@ class WaeyongWorkflow:
             self._wrap_node_with_progress("ensure_child_profile", self._ensure_child_profile),
         )
         graph_builder.add_node(
+            "guard_question",
+            self._wrap_node_with_progress("guard_question", self._guard_question),
+        )
+        graph_builder.add_node("reject_question", self._reject_question)
+        graph_builder.add_node(
             "analyze_question",
             self._wrap_node_with_progress("analyze_question", self._analyze_question),
         )
@@ -908,8 +1029,24 @@ class WaeyongWorkflow:
         )
 
         graph_builder.add_edge(START, "ensure_child_profile")
-        graph_builder.add_edge("ensure_child_profile", "analyze_question")
-        graph_builder.add_edge("analyze_question", "convert_study_subject")
+        graph_builder.add_edge("ensure_child_profile", "guard_question")
+        graph_builder.add_conditional_edges(
+            "guard_question",
+            self._route_after_guard,
+            {
+                "continue": "analyze_question",
+                "reject": "reject_question",
+            },
+        )
+        graph_builder.add_conditional_edges(
+            "analyze_question",
+            self._route_after_analyze,
+            {
+                "continue": "convert_study_subject",
+                "reject": "reject_question",
+            },
+        )
+        graph_builder.add_edge("reject_question", END)
         graph_builder.add_edge("convert_study_subject", "load_prior_learning")
         graph_builder.add_edge("load_prior_learning", "generate_parent_coach")
         graph_builder.add_edge("generate_parent_coach", "decide_activity_feasibility")
@@ -946,6 +1083,11 @@ class WaeyongWorkflow:
         finally:
             if callback_token is not None:
                 CURRENT_PROGRESS_CALLBACK.reset(callback_token)
+
+        if result.get("question_rejected"):
+            message = (result.get("question_rejection_message") or "").strip()
+            raise QuestionRejectedError(message or DEFAULT_QUESTION_REJECTION_MESSAGE)
+
         return CuriosityResult(
             target_age=int(result["target_age"]),
             child_interests=list(result.get("child_interests") or []),

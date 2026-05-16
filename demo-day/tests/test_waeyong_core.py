@@ -12,8 +12,10 @@ from waeyong_core import (
     LearningRepository,
     ParentCoachPack,
     QuestionAnalysis,
+    QuestionRejectedError,
     StudySubject,
     WaeyongWorkflow,
+    assess_question_quality,
     get_activity_branch_label,
     get_workflow_progress_message,
     normalize_request,
@@ -39,6 +41,77 @@ def test_normalize_request_clamps_age_and_splits_interests() -> None:
 def test_curiosity_request_rejects_blank_question() -> None:
     with pytest.raises(ValueError):
         CuriosityRequest(question="   ", target_age=5)
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["ㅇㅇㅇ", "ㅋㅋㅋ", "...", "???", "a", "12345", "ㅎ"],
+)
+def test_assess_question_quality_rejects_obvious_gibberish(question: str) -> None:
+    assessment = assess_question_quality(question)
+
+    assert assessment.acceptable is False
+    assert assessment.message
+
+
+def test_assess_question_quality_accepts_real_child_question() -> None:
+    assessment = assess_question_quality("비는 왜 내려요?")
+
+    assert assessment.acceptable is True
+    assert assessment.message == ""
+
+
+def test_assess_question_quality_passes_off_topic_sentence_to_llm_guard() -> None:
+    assessment = assess_question_quality("코스피에 현 상황에 대해서 알려줘")
+
+    assert assessment.acceptable is True
+
+
+def test_analyze_question_rejects_when_llm_marks_learning_topic_mismatch() -> None:
+    workflow = WaeyongWorkflow.__new__(WaeyongWorkflow)
+
+    class FakeStructuredInvoker:
+        def invoke(self, _prompt: str) -> QuestionAnalysis:
+            return QuestionAnalysis(
+                is_acceptable=False,
+                rejection_message="주식 시황은 아이 학습 주제에 맞지 않아요.",
+                question_type="일상·기타",
+                child_intent="",
+                parent_need="",
+                difficulty_level="쉬움",
+            )
+
+    class FakeLLM:
+        def with_structured_output(self, _model):
+            return FakeStructuredInvoker()
+
+    workflow.llm = FakeLLM()
+    result = workflow._analyze_question(
+        {
+            "question": "코스피에 현 상황에 대해서 알려줘",
+            "target_age": 5,
+            "child_interests": [],
+            "explanation_style": "짧고 재밌게",
+        }
+    )
+
+    assert result["question_rejected"] is True
+    assert "학습 주제" in result["question_rejection_message"]
+
+
+def test_workflow_run_rejects_gibberish_before_downstream_nodes() -> None:
+    workflow = _build_stubbed_workflow(image_needed=False)
+    progress_events: list[str] = []
+
+    with pytest.raises(QuestionRejectedError) as exc_info:
+        workflow.run(
+            CuriosityRequest(question="ㅇㅇㅇ", target_age=5),
+            thread_id="test-guard-reject",
+            progress_callback=lambda node_name, message: progress_events.append(node_name),
+        )
+
+    assert "질문" in str(exc_info.value)
+    assert progress_events == ["ensure_child_profile", "guard_question"]
 
 
 def test_normalize_topic_key_compacts_whitespace() -> None:
@@ -88,11 +161,14 @@ def _build_stubbed_workflow(image_needed: bool) -> WaeyongWorkflow:
     }
     workflow._analyze_question = lambda state: {
         "question_analysis": QuestionAnalysis(
+            is_acceptable=True,
             question_type="과학·자연",
             child_intent="비가 오는 이유가 궁금함",
             parent_need="쉽고 짧은 설명",
             difficulty_level="쉬움",
-        )
+        ),
+        "question_rejected": False,
+        "question_rejection_message": "",
     }
     workflow._convert_study_subject = lambda state: {
         "study_subject": StudySubject(
@@ -188,6 +264,7 @@ def test_workflow_progress_callback_reports_each_node_for_image_creation_branch(
 
     expected_nodes = [
         "ensure_child_profile",
+        "guard_question",
         "analyze_question",
         "convert_study_subject",
         "load_prior_learning",

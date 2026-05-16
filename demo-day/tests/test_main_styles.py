@@ -50,13 +50,13 @@ def test_submit_flow_wires_progress_callback_into_workflow_run() -> None:
     assert (
         'progress_status_placeholder.markdown(' in content
     )
-    assert (
-        'build_loading_status_html(get_workflow_progress_message("ensure_child_profile"))'
-        in content
-    )
+    assert "build_loading_status_html(" in content
+    assert 'get_workflow_progress_message("ensure_child_profile")' in content
+    assert "assess_question_quality(question_text)" in content
     assert 'def update_progress_status(_node_name: str, message: str) -> None:' in content
     assert "build_loading_status_html(message)" in content
     assert "progress_callback=update_progress_status" in content
+    assert "QuestionRejectedError" in content
     assert 'st.spinner("왜용이 답을 준비하고 있어요...")' not in content
 
 
