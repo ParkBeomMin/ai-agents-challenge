@@ -422,6 +422,16 @@ def get_repo() -> LearningRepository:
 
 def render_history_sidebar(repo: LearningRepository, learner_id: str) -> None:
     st.sidebar.markdown("## 학습 기록")
+    if not learner_id.strip():
+        st.sidebar.caption("learner_id를 입력하면 이전 학습 기록을 볼 수 있어요.")
+        st.session_state["selected_record"] = None
+        st.session_state["selected_record_detail"] = None
+        st.session_state["selected_record_result"] = ""
+        st.session_state.pop("selected_record_id", None)
+        if st.session_state.get("active_result_source") == "history":
+            st.session_state["active_result_source"] = "latest"
+        return
+
     categories = repo.list_question_categories(learner_id)
     category_options = ["전체"] + [name for name, _ in categories]
     selected_category = st.sidebar.selectbox("카테고리", category_options)
@@ -713,6 +723,7 @@ def main() -> None:
         preferred_source=st.session_state.get("active_result_source"),
         latest_result=latest_result,
         selected_record_result=selected_record_result or "",
+        history_enabled=bool(learner_id.strip()),
     )
     if active_result_source == "history":
         render_result(CuriosityResult.model_validate_json(selected_record_result))

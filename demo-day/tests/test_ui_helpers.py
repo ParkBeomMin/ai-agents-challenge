@@ -240,3 +240,14 @@ def test_resolve_active_result_source_prefers_history_when_requested() -> None:
     )
 
     assert source == "history"
+
+
+def test_resolve_active_result_source_ignores_history_when_disabled() -> None:
+    source = resolve_active_result_source(
+        preferred_source="history",
+        latest_result=None,
+        selected_record_result='{"question":"최근 기록"}',
+        history_enabled=False,
+    )
+
+    assert source is None

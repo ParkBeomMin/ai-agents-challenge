@@ -69,6 +69,15 @@ def test_loading_status_styles_define_inline_spinner() -> None:
     assert "@keyframes loading-status-spin {" in content
 
 
+def test_history_sidebar_requires_learner_id_before_showing_records() -> None:
+    main_py = Path(__file__).resolve().parents[1] / "main.py"
+    content = main_py.read_text(encoding="utf-8")
+
+    assert "if not learner_id.strip():" in content
+    assert "learner_id를 입력하면 이전 학습 기록을 볼 수 있어요." in content
+    assert "history_enabled=bool(learner_id.strip())" in content
+
+
 def test_result_view_does_not_show_saved_record_success_banner() -> None:
     main_py = Path(__file__).resolve().parents[1] / "main.py"
     content = main_py.read_text(encoding="utf-8")

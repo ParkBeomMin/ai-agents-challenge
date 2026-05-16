@@ -279,14 +279,15 @@ def resolve_active_result_source(
     preferred_source: str | None,
     latest_result: dict | None,
     selected_record_result: str,
+    history_enabled: bool = True,
 ) -> str | None:
     if preferred_source == "latest" and latest_result:
         return "latest"
-    if preferred_source == "history" and selected_record_result:
+    if history_enabled and preferred_source == "history" and selected_record_result:
         return "history"
     if latest_result:
         return "latest"
-    if selected_record_result:
+    if history_enabled and selected_record_result:
         return "history"
     return None
 
