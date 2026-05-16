@@ -42,6 +42,18 @@ def test_guidance_pair_uses_top_separator_instead_of_middle_divider() -> None:
     assert "border-left:" not in divider_block
 
 
+def test_submit_flow_clears_result_body_on_question_rejection() -> None:
+    main_py = Path(__file__).resolve().parents[1] / "main.py"
+    content = main_py.read_text(encoding="utf-8")
+
+    assert "def clear_result_body() -> None:" in content
+    assert 'st.session_state["hide_result_body"] = True' in content
+    assert "clear_result_body()" in content
+    assert "except QuestionRejectedError" in content
+    assert 'if st.session_state.get("hide_result_body"):' in content
+    assert "show_result_body()" in content
+
+
 def test_submit_flow_wires_progress_callback_into_workflow_run() -> None:
     main_py = Path(__file__).resolve().parents[1] / "main.py"
     content = main_py.read_text(encoding="utf-8")

@@ -422,6 +422,16 @@ def get_repo() -> LearningRepository:
     return LearningRepository(DEFAULT_DB_PATH)
 
 
+def clear_result_body() -> None:
+    st.session_state.pop("latest_result", None)
+    st.session_state["active_result_source"] = None
+    st.session_state["hide_result_body"] = True
+
+
+def show_result_body() -> None:
+    st.session_state.pop("hide_result_body", None)
+
+
 def render_history_sidebar(repo: LearningRepository, learner_id: str) -> None:
     st.sidebar.markdown("## 학습 기록")
     if not learner_id.strip():
@@ -483,6 +493,7 @@ def render_history_sidebar(repo: LearningRepository, learner_id: str) -> None:
                 current_selected_id=selected_record_id,
                 clicked_record_id=record_id,
             )
+            show_result_body()
             st.session_state["active_result_source"] = "history"
             st.rerun()
 
@@ -672,13 +683,13 @@ def main() -> None:
 
     if submitted:
         if not question.strip():
-            st.session_state.pop("latest_result", None)
+            clear_result_body()
             st.warning("아이 질문을 입력해 주세요.")
         else:
             question_text = question.strip()
             guard_assessment = assess_question_quality(question_text)
             if not guard_assessment.acceptable:
-                st.session_state.pop("latest_result", None)
+                clear_result_body()
                 st.warning(guard_assessment.message)
             else:
                 request = CuriosityRequest(
@@ -711,15 +722,16 @@ def main() -> None:
                             progress_callback=update_progress_status,
                         )
                     loading_placeholder.empty()
+                    show_result_body()
                     st.session_state["latest_result"] = result.model_dump()
                     st.session_state["active_result_source"] = "latest"
                 except QuestionRejectedError as exc:
                     loading_placeholder.empty()
-                    st.session_state.pop("latest_result", None)
+                    clear_result_body()
                     st.warning(exc.message)
                 except Exception as exc:
                     loading_placeholder.empty()
-                    st.session_state.pop("latest_result", None)
+                    clear_result_body()
                     message = str(exc)
                     if "OPENAI_API_KEY" in message or "Missing credentials" in message:
                         st.error(
@@ -733,12 +745,15 @@ def main() -> None:
 
     latest_result = st.session_state.get("latest_result")
     selected_record_result = st.session_state.get("selected_record_result")
-    active_result_source = resolve_active_result_source(
-        preferred_source=st.session_state.get("active_result_source"),
-        latest_result=latest_result,
-        selected_record_result=selected_record_result or "",
-        history_enabled=bool(learner_id.strip()),
-    )
+    if st.session_state.get("hide_result_body"):
+        active_result_source = None
+    else:
+        active_result_source = resolve_active_result_source(
+            preferred_source=st.session_state.get("active_result_source"),
+            latest_result=latest_result,
+            selected_record_result=selected_record_result or "",
+            history_enabled=bool(learner_id.strip()),
+        )
     if active_result_source == "history":
         render_result(CuriosityResult.model_validate_json(selected_record_result))
     elif active_result_source == "latest":
